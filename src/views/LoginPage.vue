@@ -8,9 +8,7 @@
 
     <ion-content class="ion-padding">
       <div class="auth-container">
-        
-        
-        <!-- Campo de correo con mejor espaciado -->
+        <!-- Campo de correo -->
         <div class="form-group">
           <ion-item class="custom-item" lines="full">
             <ion-label position="floating" class="input-label">Correo Electrónico</ion-label>
@@ -23,7 +21,7 @@
           </ion-item>
         </div>
 
-        <!-- Campo de contraseña con mejor espaciado -->
+        <!-- Campo de contraseña -->
         <div class="form-group">
           <ion-item class="custom-item" lines="full">
             <ion-label position="floating" class="input-label">Contraseña</ion-label>
@@ -36,7 +34,7 @@
           </ion-item>
         </div>
 
-        <!-- Botón con mejor margen superior -->
+        <!-- Botón de inicio de sesión -->
         <ion-button 
           expand="block" 
           @click="login" 
@@ -47,7 +45,7 @@
           <span v-else>Iniciar Sesión</span>
         </ion-button>
 
-        <!-- Enlaces con mejor espaciado -->
+        <!-- Enlaces -->
         <div class="auth-links">
           <p class="auth-text">¿No tienes cuenta? <router-link to="/register" class="auth-link">Regístrate</router-link></p>
         </div>
@@ -61,13 +59,13 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { 
   IonPage, IonHeader, IonToolbar, IonTitle, IonContent, IonItem, 
-  IonLabel, IonInput, IonButton, IonSpinner, IonImg, toastController 
+  IonLabel, IonInput, IonButton, IonSpinner, toastController 
 } from '@ionic/vue';
 import axios from 'axios';
 
 const router = useRouter();
-const email = ref('dgc@gmail.com');
-const password = ref('password123');
+const email = ref('');
+const password = ref('');
 const loading = ref(false);
 const token = ref('');
 
@@ -80,13 +78,19 @@ const waitForOneSignalId = async (): Promise<string | null> => {
         resolve(oneSignalId);
       }
     }, 1000); // Verifica cada segundo
+    // Agregar un timeout para evitar loops infinitos
+    setTimeout(() => {
+      clearInterval(interval);
+      resolve(null);
+    }, 15000); // Máximo 15 segundos
   });
 };
 
 const login = async () => {
   try {
     loading.value = true;
-    
+
+    // Realizar la solicitud de inicio de sesión
     const response = await axios.post('https://apijkk.darkdev.click/api/login', {
       email: email.value,
       password: password.value
@@ -94,13 +98,20 @@ const login = async () => {
 
     token.value = response.data.token;
     const userId = response.data.id;
-    const OneSignalId = await waitForOneSignalId();
+    const oneSignalId = await waitForOneSignalId();
 
+    if (!oneSignalId) {
+      showToast('Error al obtener el OneSignalId. Intenta nuevamente.');
+      return;
+    }
+
+    // Guardar datos en localStorage
     localStorage.setItem('authToken', response.data.token);
     localStorage.setItem('user', JSON.stringify(response.data.user));
 
-    if (userId && OneSignalId) {
-      await updateUser(userId, email.value, password.value, OneSignalId);
+    // Actualizar el usuario con el OneSignalId
+    if (userId && oneSignalId) {
+      await updateUser(userId, email.value, password.value, oneSignalId);
     }
 
     showToast('Bienvenido!');
@@ -115,22 +126,21 @@ const login = async () => {
 
 const updateUser = async (userId: string, email: string, password: string, oneSignalId: string) => {
   try {
-    // Realizar la solicitud para actualizar el usuario
     const response = await axios.put(`https://apijkk.darkdev.click/api/users/${userId}`, {
-      email: email,
-      password: password,
+      email,
+      password,
       onesignal_id: oneSignalId,
     }, {
       headers: {
-        Authorization: `Bearer ${token.value}`, // Incluir el token en los headers
+        Authorization: `Bearer ${token.value}`,
       },
     });
 
     console.log('Usuario actualizado:', response.data);
+    localStorage.removeItem('onesignalId'); // Limpiar el OneSignalId después de usarlo
   } catch (error) {
-    const err = error as { response?: { data: any }; message: string };
-    console.error('Error al actualizar el usuario:', err.response?.data || err.message);
-    alert('Error al actualizar el usuario');
+    console.error('Error al actualizar el usuario:', error);
+    showToast('Error al actualizar el usuario.');
   }
 };
 
@@ -145,26 +155,17 @@ const showToast = async (message: string) => {
 </script>
 
 <style scoped>
-/* Contenedor principal */
+/* Estilos personalizados */
 .auth-container {
   max-width: 500px;
   margin: 0 auto;
   padding: 20px;
 }
 
-/* Logo */
-.logo {
-  max-width: 150px;
-  margin: 0 auto 40px;
-  display: block;
-}
-
-/* Grupos de formulario */
 .form-group {
   margin-bottom: 25px;
 }
 
-/* Items personalizados */
 .custom-item {
   --padding-start: 0;
   --inner-padding-end: 0;
@@ -173,15 +174,11 @@ const showToast = async (message: string) => {
   margin-bottom: 5px;
 }
 
-/* Etiquetas */
 .input-label {
   color: var(--ion-color-medium);
   font-weight: 500;
-  margin-bottom: 8px;
-  display: block;
 }
 
-/* Inputs */
 .custom-input {
   --padding-start: 12px;
   --padding-end: 12px;
@@ -189,10 +186,8 @@ const showToast = async (message: string) => {
   --padding-bottom: 12px;
   background: var(--ion-color-light);
   border-radius: 8px;
-  margin-top: 8px;
 }
 
-/* Botón de submit */
 .submit-button {
   margin-top: 20px;
   --border-radius: 8px;
@@ -200,7 +195,6 @@ const showToast = async (message: string) => {
   font-weight: 600;
 }
 
-/* Enlaces de autenticación */
 .auth-links {
   text-align: center;
   margin-top: 25px;
@@ -215,10 +209,5 @@ const showToast = async (message: string) => {
   color: var(--ion-color-primary);
   text-decoration: none;
   font-weight: 600;
-}
-
-/* Efectos de focus */
-ion-input:focus-within {
-  border: 2px solid var(--ion-color-primary);
 }
 </style>

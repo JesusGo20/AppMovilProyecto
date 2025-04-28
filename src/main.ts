@@ -2,9 +2,10 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router';
 import { IonicVue } from '@ionic/vue';
-import axios from 'axios'; // Importar axios
+import axios from 'axios';
+import OneSignal, { NotificationClickEvent, NotificationWillDisplayEvent } from "onesignal-cordova-plugin";
 
-/* Importaciones CSS de Ionic (se mantienen igual) */
+/* Importaciones CSS de Ionic */
 import '@ionic/vue/css/core.css';
 import '@ionic/vue/css/normalize.css';
 import '@ionic/vue/css/structure.css';
@@ -18,72 +19,83 @@ import '@ionic/vue/css/display.css';
 import '@ionic/vue/css/palettes/dark.system.css';
 import './theme/variables.css';
 
-
-import OneSignal, { NotificationClickEvent, NotificationWillDisplayEvent } from "onesignal-cordova-plugin";
-// 1. Configuración global de Axios
+// Configuración global de Axios
 axios.defaults.baseURL = 'https://apijkk.darkdev.click/api';
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-// 2. Interceptor para agregar token automáticamente
-axios.interceptors.request.use(config => {
-  const token = localStorage.getItem('authToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      router.push('/login');
+    }
+    return Promise.reject(error);
   }
-  return config;
-}, error => {
-  return Promise.reject(error);
-});
+);
 
-// 3. Interceptor para manejar errores de autenticación
-axios.interceptors.response.use(response => response, error => {
-  if (error.response?.status === 401) {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
-    router.push('/login');
-  }
-  return Promise.reject(error);
-});
-
-const app = createApp(App)
-  .use(IonicVue)
-  .use(router);
+const app = createApp(App).use(IonicVue).use(router);
 
 router.isReady().then(() => {
   app.mount('#app');
 
-  OneSignal.initialize("17fb4d56-dccf-46ef-9d0a-7473d753f8f9");
-  OneSignal.Notifications.requestPermission();
+  try {
+    // Inicializar OneSignal
+    console.log('Inicializando OneSignal...');
+    OneSignal.initialize("17fb4d56-dccf-46ef-9d0a-7473d753f8f9");
+    OneSignal.Notifications.requestPermission();
 
-  const interval = setInterval(async() => {
- 
-     const id = await OneSignal.User.getOnesignalId();
-      console.log('OnesignalId', id);
-      
-      if (id) {
-        localStorage.setItem('onesignalId', id);
-        clearInterval(interval);
+    // Obtener el OneSignalId periódicamente
+    const interval = setInterval(async () => {
+      try {
+        const id = await OneSignal.User.getOnesignalId();
+        console.log('OneSignalId:', id);
 
+        if (id) {
+          localStorage.setItem('onesignalId', id);
+          clearInterval(interval);
+        }
+      } catch (error) {
+        console.error('Error al obtener OneSignalId:', error);
       }
+    }, 60000);
 
-  }, 60000);
+    // Manejar notificaciones en primer plano
+    const displayNotification = (event: NotificationWillDisplayEvent) => {
+      try {
+        event.getNotification().display();
+        console.log("Notificación recibida en primer plano:", JSON.stringify(event));
+      } catch (error) {
+        console.error('Error al mostrar la notificación:', error);
+      }
+    };
 
-const displayNotification = (event: NotificationWillDisplayEvent) => {
-    // Use preventDefault() to not display
-    // event.preventDefault();
-    // Use notification.display() to display the notification after some async work
-    event.getNotification().display();
+    OneSignal.Notifications.addEventListener("foregroundWillDisplay", displayNotification);
 
-    console.log("OneSignal notification received:", JSON.stringify(event));
-   
-}
+    // Manejar clics en notificaciones
+    const openNotification = (event: NotificationClickEvent) => {
+      try {
+        const notificationData = JSON.stringify(event);
+        console.log("Notificación clickeada:", notificationData);
+      } catch (error) {
+        console.error('Error al manejar el clic en la notificación:', error);
+      }
+    };
 
-OneSignal.Notifications.addEventListener("foregroundWillDisplay", displayNotification);
+    OneSignal.Notifications.addEventListener("click", openNotification);
 
-
-const openNotification = (event: NotificationClickEvent) => {
-  const notificationData = JSON.stringify(event);
-  console.log("OneSignal notification clicked:", notificationData);
-};
-
-OneSignal.Notifications.addEventListener("click", openNotification);
+    console.log('OneSignal configurado correctamente.');
+  } catch (error) {
+    console.error('Error al inicializar OneSignal:', error);
+  }
 });
